@@ -13,7 +13,6 @@ import requests
 import urllib3
 import telebot
 from telebot import types
-from pathlib import Path
 
 # psutil library for advanced hardware reading (Safe-catch for Termux)
 try:
@@ -101,22 +100,19 @@ def find_free_port():
     s.close()
     return port
 
-# ----------------- ENHANCED FILE INDEX MAPPING SYSTEM (RECURSIVE) -----------------
-def get_all_files_recursive(proj_dir):
-    """Recursively get all files with their relative paths, including subfolders"""
+# ----------------- FILE INDEX MAPPING SYSTEM -----------------
+def update_project_files_map(proj_id, proj_dir):
+    """Generates and updates a short index map of files to respect Telegram's 64-byte callback limit"""
     all_files = []
-    for root, dirs, files in os.walk(proj_dir):
-        for f in files:
+    for root, dirs, files_in_dir in os.walk(proj_dir):
+        for f in files_in_dir:
             if f == "output.log":
                 continue
             rel_path = os.path.relpath(os.path.join(root, f), proj_dir)
-            # Keep folder structure in path
             all_files.append(rel_path)
-    return sorted(all_files)
-
-def update_project_files_map(proj_id, proj_dir):
-    """Generates and updates a short index map of files recursively to respect Telegram's 64-byte callback limit"""
-    all_files = get_all_files_recursive(proj_dir)
+            
+    # Consistent sorting order
+    all_files.sort()
     
     # Map index ID (string) -> relative file path
     files_map = {str(idx): path for idx, path in enumerate(all_files)}
@@ -124,30 +120,8 @@ def update_project_files_map(proj_id, proj_dir):
     meta = load_meta()
     if proj_id in meta:
         meta[proj_id]['files'] = files_map
-        # Also store for quick access
-        meta[proj_id]['file_list'] = all_files
         save_meta(meta)
     return files_map
-
-def get_file_tree_structure(proj_dir, max_depth=3):
-    """Generate a tree-like structure for display"""
-    tree_lines = []
-    proj_dir = Path(proj_dir)
-    
-    def add_to_tree(path, prefix="", depth=0):
-        if depth > max_depth:
-            tree_lines.append(f"{prefix}└── ... (more)")
-            return
-        items = sorted([p for p in path.iterdir() if p.name != "output.log"])
-        for i, item in enumerate(items):
-            is_last = (i == len(items) - 1)
-            connector = "└── " if is_last else "├── "
-            tree_lines.append(f"{prefix}{connector}{item.name}{'/' if item.is_dir() else ''}")
-            if item.is_dir():
-                add_to_tree(item, prefix + ("    " if is_last else "│   "), depth + 1)
-    
-    add_to_tree(proj_dir)
-    return "\n".join(tree_lines[:50])  # Limit to avoid huge messages
 
 # ----------------- DIAGNOSTICS & SYSTEM METRICS -----------------
 def get_server_stats():
@@ -179,16 +153,31 @@ def get_server_stats():
         pass
         
     def make_bar(percent):
-        filled = int(percent / 10)
-        return "🟩" * filled + "⬜" * (10 - filled)
+        # Colour shifts with load: 🟩 calm -> 🟨 warm -> 🟧 hot -> 🟥 critical
+        if percent < 50:
+            block = "🟩"
+        elif percent < 75:
+            block = "🟨"
+        elif percent < 90:
+            block = "🟧"
+        else:
+            block = "🟥"
+        filled = int(percent / 5)
+        return block * filled + "⬜" * (20 - filled)
         
     stats = (
-        f"┌───────────────────────────┐\n"
-        f"  💎 *PLATFORM:* `{env_mode}`\n"
-        f"  ⚡ *CPU LOAD:* [{make_bar(cpu_p)}] {cpu_p}%\n"
-        f"  💾 *RAM LOAD:* [{make_bar(ram_p)}] {ram_p}%\n"
-        f"  📁 *STORAGE:*  [{make_bar(disk_p)}] {disk_p}% ({free_gb}GB Free)\n"
-        f"└───────────────────────────┘"
+        f"╔═══════════════════════════════════╗\n"
+        f"║  🖥️ *SERVER RESOURCE MONITOR* 🖥️  ║\n"
+        f"╚═══════════════════════════════════╝\n\n"
+        f"💎 *PLATFORM*\n`{env_mode}`\n\n"
+        f"⚡ *CPU LOAD*  —  🔥 *{cpu_p}%*\n"
+        f"`{make_bar(cpu_p)}`\n\n"
+        f"💾 *RAM LOAD*  —  🔥 *{ram_p}%*\n"
+        f"`{make_bar(ram_p)}`\n\n"
+        f"📁 *STORAGE*  —  🔥 *{disk_p}%*\n"
+        f"`{make_bar(disk_p)}`\n"
+        f"🆓 *Free Space:*  📦 `{free_gb} GB`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     return stats
 
@@ -343,17 +332,32 @@ def get_process_resource_usage(proj_id):
 # ----------------- PREMIUM PROGRESS LOADER -----------------
 def play_vip_loading(chat_id, message_id, title):
     animation_steps = [
-        "⏳ [🟩⬜⬜⬜⬜⬜⬜⬜⬜⬜] 10%",
-        "📥 [🟩🟩🟩⬜⬜⬜⬜⬜⬜⬜] 30%",
-        "⚡ [🟩🟩🟩🟩🟩⬜⬜⬜⬜⬜] 50%",
-        "🔄 [🟩🟩🟩🟩🟩🟩🟩⬜⬜⬜] 70%",
-        "⚙️ [🟩🟩🟩🟩🟩🟩🟩🟩🟩⬜] 90%",
-        "✅ [🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩] 100%"
+        ("🔍", 5, "🟥"),
+        ("📥", 15, "🟥"),
+        ("📦", 25, "🟧"),
+        ("⚙️", 35, "🟧"),
+        ("🔄", 45, "🟨"),
+        ("🧩", 55, "🟨"),
+        ("⚡", 65, "🟦"),
+        ("🛠️", 75, "🟦"),
+        ("🚀", 85, "🟩"),
+        ("✨", 95, "🟩"),
+        ("✅", 100, "🟩"),
     ]
-    for step in animation_steps:
+    bar_len = 20
+    for icon, percent, color in animation_steps:
+        filled = int((percent / 100) * bar_len)
+        bar = color * filled + "⬜" * (bar_len - filled)
         try:
-            bot_edit_message(f"✨ *{title}*\n`{step}`", chat_id, message_id, parse_mode="Markdown")
-            time.sleep(0.7)
+            bot_edit_message(
+                f"╔═══════════════════════════════╗\n"
+                f"║  {icon} *{title}*\n"
+                f"╚═══════════════════════════════╝\n\n"
+                f"`{bar}`\n"
+                f"🎯 *{percent}% COMPLETE*",
+                chat_id, message_id, parse_mode="Markdown"
+            )
+            time.sleep(0.6)
         except:
             pass
 
@@ -377,12 +381,14 @@ def send_welcome(message):
     
     welcome_text = (
         f"{ASCII_LOGO}\n"
-        f"👑 *WELCOME TO VIP MULTI-HOSTING HUB* 👑\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Deploy, manage, modify, and backup sandbox containers "
-        f"instantly using professional, secure workflows.\n\n"
-        f"📁 *Hosted Projects:* `{len(user_projects)}` Containers Active\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"╔═══════════════════════════════════╗\n"
+        f"║  👑 *WELCOME TO VIP HOSTING HUB* 👑  ║\n"
+        f"╚═══════════════════════════════════╝\n\n"
+        f"🛰️ Deploy, manage, modify, and backup your sandbox "
+        f"containers instantly with a *secure, private* workflow.\n\n"
+        f"📁 *Your Hosted Projects:*  🟢 `{len(user_projects)}` Active\n"
+        f"🔒 *Privacy:*  Only *you* can view or control your files.\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{get_server_stats()}"
     )
     
@@ -405,10 +411,11 @@ def handle_navigation_buttons(message):
         user_states[chat_id] = "AWAITING_ZIP"
         bot_send_message(
             chat_id,
-            "👑 *VIP SANDBOX DEPLOYER*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📥 Upload your project `.zip` archive to initialize.\n\n"
-            "💡 *Note:* Your zip can contain subfolders. The system will recursively scan all files.",
+            "╔═══════════════════════════════╗\n"
+            "║   👑 *VIP SANDBOX DEPLOYER* 👑   ║\n"
+            "╚═══════════════════════════════╝\n\n"
+            "📥 *Upload your project `.zip` archive* to begin deployment.\n"
+            "🔒 It will be stored *privately* under your account only.",
             parse_mode="Markdown"
         )
     elif text == "📁 My Dashboard":
@@ -417,13 +424,14 @@ def handle_navigation_buttons(message):
         bot_send_message(chat_id, get_server_stats(), parse_mode="Markdown")
     elif text == "❔ Help":
         help_text = (
-            "💡 *VIP OPERATIONAL GUIDE*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "• *Deployment:* Click 'Deploy New', upload your code inside a `.zip` file.\n"
-            "• *Subfolders Support:* Files inside subfolders are automatically detected and displayed.\n"
-            "• *Port Configuration:* Automatic port assignment. Web APIs can fetch port via `PORT` environment variable.\n"
-            "• *Online IDE:* Dashboard -> Select Project -> Files -> View/Edit codes instantly.\n"
-            "• *Backups:* Click 'Generate Backup' inside project control panel to download the whole directory."
+            "╔═══════════════════════════════╗\n"
+            "║   💡 *VIP OPERATIONAL GUIDE* 💡   ║\n"
+            "╚═══════════════════════════════╝\n\n"
+            "🚀 *Deployment*\n   Click 'Deploy New', upload your code as a `.zip`.\n\n"
+            "🔌 *Port Configuration*\n   Auto-assigned. Fetch it via the `PORT` environment variable.\n\n"
+            "💻 *Online IDE*\n   Dashboard → Select Project → Files → View/Edit instantly.\n\n"
+            "📦 *Backups*\n   Use 'Full Backup' inside a project panel to download everything.\n\n"
+            "🔒 *Privacy*\n   Every project is locked to your own account — no one else can see or touch it."
         )
         bot_send_message(chat_id, help_text, parse_mode="Markdown")
 
@@ -434,13 +442,32 @@ def callback_listener(call):
     chat_id = call.message.chat.id
     data = call.data
     
+    # ----------------- 🔒 PRIVACY GUARD -----------------
+    # Every callback that touches a specific project must belong to the requesting user.
+    # This prevents one user from viewing, controlling, editing, or deleting
+    # another user's hosted files/containers — even if a proj_id is guessed.
+    PROJECT_SCOPED_PREFIXES = (
+        "select_main:", "proj_view:", "proj_start:", "proj_stop:", "proj_restart:",
+        "proj_autorestart_toggle:", "proj_logs:", "proj_download_logs:", "proj_env:",
+        "proj_add_env:", "proj_clear_env:", "proj_fm:", "proj_backup:", "proj_install:",
+        "proj_delete:", "vf:", "ef:", "rf:", "df:"
+    )
+    if data.startswith(PROJECT_SCOPED_PREFIXES):
+        parts = data.split(":")
+        proj_id = parts[1] if len(parts) > 1 else None
+        guard_meta = load_meta()
+        owner_chat_id = guard_meta.get(proj_id, {}).get('chat_id') if proj_id else None
+        if not proj_id or proj_id not in guard_meta or owner_chat_id != chat_id:
+            bot.answer_callback_query(call.id, "🔒 Access Denied — this container belongs to another user.", show_alert=True)
+            return
+    # ----------------------------------------------------
+    
     if data == "btn_deploy":
         user_states[chat_id] = "AWAITING_ZIP"
         bot_edit_message(
             "👑 *VIP DEPLOYMENT ENVIRONMENT*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📥 Please upload your project `.zip` file.\n\n"
-            "💡 *Pro Tip:* Your zip can contain subfolders. All files will be scanned recursively.",
+            "📥 Please upload your project `.zip` file.",
             chat_id, call.message.message_id
         )
         
@@ -508,6 +535,7 @@ def callback_listener(call):
 
     elif data.startswith("proj_logs:"):
         _, proj_id = data.split(":")
+        # In-place Log refreshment
         show_logs_view(chat_id, proj_id, call.message.message_id)
         
     elif data.startswith("proj_download_logs:"):
@@ -597,8 +625,6 @@ def callback_listener(call):
                 if os.path.exists(target_path):
                     if os.path.isdir(target_path): shutil.rmtree(target_path)
                     else: os.remove(target_path)
-                    # Update file map after deletion
-                    update_project_files_map(proj_id, meta[proj_id]['dir'])
                     bot.answer_callback_query(call.id, "🗑️ File deleted!")
                 show_file_manager(chat_id, proj_id, call.message.message_id)
 
@@ -629,6 +655,7 @@ def callback_listener(call):
 
     elif data.startswith("proj_install:"):
         _, proj_id, module_name = data.split(":")
+        # Detect if Node or Python module installer is needed
         meta = load_meta()
         if proj_id in meta:
             main_file = meta[proj_id]['main_file']
@@ -639,11 +666,12 @@ def callback_listener(call):
             
             try:
                 if is_node:
+                    # Run npm install
                     cmd = ["npm", "install", module_name]
                 else:
-                    cmd = [sys.executable, "-m", "pip", "install", module_name]
+                    cmd = [sys.executable, "-m", "pip", "install", "--break-system-packages", module_name]
                     
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=80, cwd=meta[proj_id]['dir'])
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=80)
                 if result.returncode == 0:
                     bot_delete_message(chat_id, msg.message_id)
                     stop_project_process(proj_id)
@@ -684,9 +712,6 @@ def handle_incoming_documents(message):
         meta = load_meta()
         if proj_id in meta:
             target_path = os.path.join(meta[proj_id]['dir'], rel_path)
-            # Create parent directories if they don't exist
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            
             status_msg = bot_send_message(chat_id, f"⏳ Uploading and replacing `{rel_path}`...", parse_mode="Markdown")
             
             try:
@@ -695,9 +720,6 @@ def handle_incoming_documents(message):
                 
                 with open(target_path, 'wb') as f:
                     f.write(downloaded_file)
-                
-                # Update file map after replacement
-                update_project_files_map(proj_id, meta[proj_id]['dir'])
                 
                 bot_delete_message(chat_id, status_msg.message_id)
                 bot.reply_to(message, f"✅ Overwritten `{rel_path}`! Restart your project dashboard to apply.")
@@ -732,7 +754,6 @@ def handle_incoming_documents(message):
             
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Extract preserving folder structure
                 zip_ref.extractall(proj_dir)
             os.remove(zip_path)
         except Exception as e:
@@ -746,67 +767,50 @@ def handle_incoming_documents(message):
             'main_file': '',
             'chat_id': chat_id,
             'auto_restart': False,
-            'files': {},
-            'file_list': []
+            'files': {}
         }
         save_meta(meta)
         
-        # Build index files map recursively
+        # Build index files map initially
         files_map = update_project_files_map(proj_id, proj_dir)
         
-        # Show file tree structure
-        file_tree = get_file_tree_structure(proj_dir)
-        tree_text = f"📂 *Project Structure:*\n```\n{file_tree}\n```"
-        
-        # Sort executable entry points - include files from subfolders
+        # Sort executable entry points — well-known entrypoint names float to the top
+        PRIORITY_NAMES = ['main.py', 'app.py', 'a.py', 'bot.py', 'run.py', 'server.py', 'index.py',
+                           'index.js', 'app.js', 'server.js', 'main.js', 'bot.js', 'start.js']
+
+        def entry_sort_key(item):
+            idx, f = item
+            base = os.path.basename(f).lower()
+            if base in PRIORITY_NAMES:
+                return (0, PRIORITY_NAMES.index(base))
+            return (1, base)
+
+        code_files = [(idx, f) for idx, f in files_map.items() if f.endswith(('.py', '.js', '.sh', '.html', '.htm'))]
+        code_files.sort(key=entry_sort_key)
+
         markup = types.InlineKeyboardMarkup(row_width=1)
         count = 0
-        
-        # Priority: Python > JavaScript > Shell > HTML
-        priority_extensions = ['.py', '.js', '.sh', '.html', '.htm']
-        
-        # First pass: show executable files with priority
-        for ext in priority_extensions:
+        for idx, f in code_files:
+            if count >= 10:
+                break
+            base = os.path.basename(f).lower()
+            star = "⭐ " if base in PRIORITY_NAMES else "📄 "
+            markup.add(types.InlineKeyboardButton(f"{star}{f}", callback_data=f"select_main:{proj_id}:{idx}"))
+            count += 1
+
+        if count == 0:  # Fallback if no specific extension is found
             for idx, f in files_map.items():
-                if f.endswith(ext) and count < 15:  # Increased limit for subfolders
-                    # Show folder path if file is in subfolder
-                    display_name = f
-                    if '/' in f or '\\' in f:
-                        display_name = f"📁 {f}"
-                    markup.add(types.InlineKeyboardButton(f"▶️ {display_name}", callback_data=f"select_main:{proj_id}:{idx}"))
+                if count < 10:
+                    markup.add(types.InlineKeyboardButton(f"📄 {f}", callback_data=f"select_main:{proj_id}:{idx}"))
                     count += 1
-        
-        # If no executable found, show all files
-        if count == 0:
-            for idx, f in files_map.items():
-                if count < 15:
-                    display_name = f
-                    if '/' in f or '\\' in f:
-                        display_name = f"📁 {f}"
-                    markup.add(types.InlineKeyboardButton(f"📄 {display_name}", callback_data=f"select_main:{proj_id}:{idx}"))
-                    count += 1
-        
-        # Add a "Show All Files" button as fallback
-        btn_show_all = types.InlineKeyboardButton("📂 Browse All Files", callback_data=f"proj_fm:{proj_id}")
-        
+            
         bot_delete_message(chat_id, status_msg.message_id)
         bot_send_message(
             chat_id,
             f"👑 *ARCHIVE EXTRACTED:* `{file_name}`\n\n"
-            f"{tree_text}\n\n"
-            f"📌 *Select Entry Point:*\n"
-            f"Choose the main file to execute (files from subfolders are included):",
+            f"Configure and pick the container's entry/executable point script:",
             parse_mode="Markdown",
             reply_markup=markup
-        )
-        
-        # Send a separate message with "Browse All Files" option
-        browse_markup = types.InlineKeyboardMarkup()
-        browse_markup.add(btn_show_all)
-        bot_send_message(
-            chat_id,
-            "🔍 *Can't find your main file?*\nClick below to browse all files in the project:",
-            reply_markup=browse_markup
         )
 
 # ----------------- TEXT INTAKE MANAGER (IDE & CONFIG) -----------------
@@ -824,8 +828,6 @@ def handle_incoming_text(message):
         meta = load_meta()
         if proj_id in meta:
             target_path = os.path.join(meta[proj_id]['dir'], rel_path)
-            # Ensure parent directory exists
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
             new_code = message.text
             
             try:
@@ -865,16 +867,17 @@ def show_project_dashboard(chat_id, proj_id, message_id=None, toast_msg=""):
     mem_usage = get_process_resource_usage(proj_id)
     
     dashboard_text = (
-        f"{'🌟 ' + toast_msg if toast_msg else '⚙️ *VIP CONTAINER DASHBOARD*'}\n"
+        f"{'🌟 *' + toast_msg + '*' if toast_msg else '╔══════════════════════════╗\\n║ ⚙️ *CONTAINER DASHBOARD* ⚙️ ║\\n╚══════════════════════════╝'}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📂 *Container Name:* `{proj_data['name']}`\n"
-        f"🚀 *Main Process:* `{proj_data['main_file']}`\n"
-        f"📈 *State:* {status}\n"
-        f"⚙️ *PID Memory:* `{mem_usage}`\n"
-        f"🔌 *Allotted Port:* `{port_allocated}`\n"
-        f"🔄 *Auto Recovery:* `{auto_r_status}`\n"
+        f"📂 *Container Name:*  `{proj_data['name']}`\n"
+        f"🚀 *Main Process:*  `{proj_data['main_file']}`\n"
+        f"📈 *State:*  {status}\n"
+        f"⚙️ *PID Memory:*  `{mem_usage}`\n"
+        f"🔌 *Allotted Port:*  `{port_allocated}`\n"
+        f"🔄 *Auto Recovery:*  {auto_r_status}\n"
+        f"🔒 *Visibility:*  🔐 Private (Only You)\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Modify container services using the action buttons:"
+        f"👇 *Manage your container below:*"
     )
     
     markup = types.InlineKeyboardMarkup(row_width=3)
@@ -914,7 +917,10 @@ def show_my_files(chat_id, message_id=None):
     user_projects = {k: v for k, v in meta.items() if v.get('chat_id') == chat_id}
     
     text = (
-        f"👑 *VIP PORTAL: RUNNING CONTAINERS* 👑\n"
+        f"╔═══════════════════════════════════╗\n"
+        f"║  👑 *YOUR PRIVATE CONTAINER LIST* 👑  ║\n"
+        f"╚═══════════════════════════════════╝\n"
+        f"🔒 _Visible only to you — no other user can see these._\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     )
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -927,9 +933,7 @@ def show_my_files(chat_id, message_id=None):
             status_symbol = "🟢" if "RUNNING" in status else "🔴"
             if "CRASHED" in status: status_symbol = "⚠️"
             
-            # Show file count
-            file_count = len(p_data.get('file_list', []))
-            text += f"• `{p_data['name']}` | 📄 {file_count} files | PID Mem: {get_process_resource_usage(p_id)} | Status: {status_symbol}\n"
+            text += f"• `{p_data['name']}` | PID Mem: {get_process_resource_usage(p_id)} | Status: {status_symbol}\n"
             markup.add(types.InlineKeyboardButton(f"📦 {p_data['name']} ({status_symbol})", callback_data=f"proj_view:{p_id}"))
             
     btn_deploy = types.InlineKeyboardButton("➕ Host New Project", callback_data="btn_deploy")
@@ -1023,24 +1027,16 @@ def show_file_manager(chat_id, proj_id, message_id):
     
     markup = types.InlineKeyboardMarkup(row_width=4)
     
-    # Show files with their folder paths
+    # Iterating over mapping database ensuring super short callbacks to combat BUTTON_DATA_INVALID
     count = 0
     for idx, rel_path in files_map.items():
-        if count >= 12: 
+        if count >= 10: 
             break
             
         size_kb = round(os.path.getsize(os.path.join(proj_data['dir'], rel_path)) / 1024, 1)
+        text += f"📄 `{rel_path}` ({size_kb} KB)\n"
         
-        # Show folder hierarchy in display
-        display_path = rel_path
-        if '/' in rel_path or '\\' in rel_path:
-            display_path = f"📁 {rel_path}"
-        else:
-            display_path = f"📄 {rel_path}"
-            
-        text += f"• `{display_path}` ({size_kb} KB)\n"
-        
-        # Callbacks are extremely short now: e.g. "vf:a7d8c2:2" which is only ~11 characters
+        # Callbacks are incredibly short now: e.g. "vf:a7d8c2:2" which is only ~11 characters
         btn_view = types.InlineKeyboardButton("🔎 View", callback_data=f"vf:{proj_id}:{idx}")
         btn_edit = types.InlineKeyboardButton("✏️ Edit", callback_data=f"ef:{proj_id}:{idx}")
         btn_rep = types.InlineKeyboardButton("🔁 Rep", callback_data=f"rf:{proj_id}:{idx}")
@@ -1048,10 +1044,6 @@ def show_file_manager(chat_id, proj_id, message_id):
         
         markup.add(btn_view, btn_edit, btn_rep, btn_del)
         count += 1
-    
-    # If there are more files than shown
-    if len(files_map) > 12:
-        text += f"\n... and {len(files_map) - 12} more files."
             
     btn_back = types.InlineKeyboardButton("🔙 Control Panel", callback_data=f"proj_view:{proj_id}")
     markup.add(btn_back)
@@ -1077,7 +1069,7 @@ def show_code_viewer(chat_id, proj_id, rel_path, file_idx, message_id):
             code_content = f"Failed to view code: {str(e)}"
             
     text = (
-        f"📄 *RAW FILE CONTENT:* `{rel_path}`\n"
+        f"?? *RAW FILE CONTENT:* `{rel_path}`\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"```text\n{code_content}\n```\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1098,6 +1090,7 @@ if __name__ == '__main__':
     print("========================================")
     
     # INFINITY POLLING SAFETY NET LOOP
+    # If internet drops out completely, this guarantees it automatically restarts polling when network returns
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=30)
