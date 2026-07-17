@@ -21,7 +21,7 @@ except ImportError:
     psutil = None
 
 # ----------------- CONFIGURATION -----------------
-BOT_TOKEN = '8535019108:AAFxpgbVRwff36VvLNdaG8XNB1DDsfXj13U'  # Insert your premium bot token here
+BOT_TOKEN = '*******'  # Insert your premium bot token here
 BASE_DIR = 'projects'              
 META_FILE = 'projects_meta.json'   
 
@@ -93,12 +93,9 @@ def bot_delete_message(chat_id, message_id):
 
 # ----------------- PORT UTILITIES -----------------
 def find_free_port():
-    """Dynamically locates an idle TCP port to avoid collisions"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(('', 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    """Railway শুধু পোর্ট 8080-এ পাবলিক ট্রাফিক পাঠায়, তাই সবসময় 8080 ব্যবহার করা হচ্ছে
+    (এর মানে একবারে শুধু একটা প্রজেক্টই বাইরে থেকে অ্যাক্সেসযোগ্য হবে)"""
+    return 8080
 
 # ----------------- FILE INDEX MAPPING SYSTEM -----------------
 def update_project_files_map(proj_id, proj_dir):
@@ -214,14 +211,12 @@ def run_project_process(proj_id, proj_data):
         
     log_file = open(log_file_path, 'w', encoding='utf-8')
     
-    # Port allocation for web processes
-    port = proj_data.get('port')
-    if not port:
-        port = find_free_port()
-        meta = load_meta()
-        if proj_id in meta:
-            meta[proj_id]['port'] = port
-            save_meta(meta)
+    # Port allocation for web processes (Railway fixed target port)
+    port = find_free_port()
+    meta = load_meta()
+    if proj_id in meta:
+        meta[proj_id]['port'] = port
+        save_meta(meta)
             
     # Language engine and deployment mode selector
     if main_file.endswith('.py'):
@@ -344,7 +339,7 @@ def play_vip_loading(chat_id, message_id, title):
         ("✨", 95, "🟩"),
         ("✅", 100, "🟩"),
     ]
-    bar_len = 20
+    bar_len = 30
     for icon, percent, color in animation_steps:
         filled = int((percent / 100) * bar_len)
         bar = color * filled + "⬜" * (bar_len - filled)
@@ -357,7 +352,7 @@ def play_vip_loading(chat_id, message_id, title):
                 f"🎯 *{percent}% COMPLETE*",
                 chat_id, message_id, parse_mode="Markdown"
             )
-            time.sleep(0.6)
+            time.sleep(0.25)
         except:
             pass
 
