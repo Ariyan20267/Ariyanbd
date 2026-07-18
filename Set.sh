@@ -702,9 +702,33 @@ zstyle ':vcs_info:git:*' formats ' %F{201}⎇ %b%f'
 zstyle ':vcs_info:*' enable git
 setopt PROMPT_SUBST
 
-# ── Folder Icon Box (⌂ home / ❐ folder, blue) ──
+# ── Bold-Caps + Decoration helper ─────────
+# CD-এ ব্যবহৃত ফ্যান্সি বোল্ড ক্যাপিটাল ইউনিকোড ফন্ট রূপান্তরকারী
+typeset -A _BOLDMAP
+_BOLDMAP=(
+  A 𝐀 B 𝐁 C 𝐂 D 𝐃 E 𝐄 F 𝐅 G 𝐆 H 𝐇 I 𝐈 J 𝐉 K 𝐊 L 𝐋 M 𝐌
+  N 𝐍 O 𝐎 P 𝐏 Q 𝐐 R 𝐑 S 𝐒 T 𝐓 U 𝐔 V 𝐕 W 𝐖 X 𝐗 Y 𝐘 Z 𝐙
+  0 𝟎 1 𝟏 2 𝟐 3 𝟑 4 𝟒 5 𝟓 6 𝟔 7 𝟕 8 𝟖 9 𝟗
+)
+
+_to_bold_caps() {
+    local input="\${(U)1}" out="" ch
+    for (( i=1; i<=\${#input}; i++ )); do
+        ch="\${input[\$i]}"
+        if [[ -n "\${_BOLDMAP[\$ch]}" ]]; then
+            out+="\${_BOLDMAP[\$ch]}"
+        else
+            out+="\$ch"
+        fi
+    done
+    echo "\$out"
+}
+
+_CMD_COLORS=(51 201 82 226 208 199 45 129 214 46 165 118)
+
+# ── Folder Icon Box (⌂ home / ❐ folder, blue) + fancy CD line ──
 # হোমে থাকলে ⌂ আইকন, অন্য যেকোনো ফোল্ডারে গেলে ❐ আইকন দেখাবে (দুটোই নীল রঙে)
-# একটা বক্সের মধ্যে path + ডানপাশে ✔ mark, নিচে tree connector
+# একটা বক্সের মধ্যে path + ডানপাশে ✔ mark, ঠিক নিচেই ফ্যান্সি রঙিন "CD path" লাইন
 _folder_icon_box() {
     local cur="\$PWD" home="\$HOME" disp icon w inw border pad content
 
@@ -732,15 +756,17 @@ _folder_icon_box() {
     printf '%*s' "\${pad}" ""
     echo -e "\033[38;5;82m\033[1m✔\033[0m \033[38;5;51m\033[1m│\033[0m"
     echo -e "\033[38;5;51m\033[1m╰\${border}╯\033[0m"
-    echo -en "\033[38;5;51m\033[1m╰─❯\033[0m "
+
+    local bold_txt="\$(_to_bold_caps "cd \${disp}")"
+    local col="\${_CMD_COLORS[\$(( RANDOM % \${#_CMD_COLORS[@]} + 1 ))]}"
+    echo -e "\033[38;5;\${col}m\033[1m⏤꯭֯🎀⃪꯭̽ᷝ✮͢𓆩\${bold_txt}𓆪-:)💙\033[0m"
 }
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd _folder_icon_box
 
-# ── Selected Prompt Design #$PROMPT_NUM ───
-PROMPT='%F{51}%B${PROMPT_LINE1_FINAL}%b%f\${vcs_info_msg_0_}
-%F{51}%B${PROMPT_LINE2_FINAL}%b%f '
+# ── Minimal Prompt (path already shown in folder box above) ──
+PROMPT='%F{51}%B╰─❯❯❯%b%f\${vcs_info_msg_0_} '
 
 # ── History ───────────────────────────────
 HISTFILE="\$HOME/.zsh_history"
