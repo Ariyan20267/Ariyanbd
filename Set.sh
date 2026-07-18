@@ -36,13 +36,13 @@ spin() {
 clear; echo ""
 MSG="  ◤ SETUP INITIALIZING ◢"
 echo -en "  ${C}${BOLD}"
-for ((i=0; i<${#MSG}; i++)); do printf "${MSG:$i:1}"; sleep 0.03; done
+for ((i=0; i<${#MSG}; i++)); do printf "${MSG:$i:1}"; sleep 0.008; done
 echo -e "${NC}\n"
 
 echo -en "  ${S}["
-for ((i=0; i<40; i++)); do echo -en "${C}█"; sleep 0.015; done
+for ((i=0; i<40; i++)); do echo -en "${C}█"; sleep 0.004; done
 echo -e "${S}]${NC}  ${G}${BOLD}OK${NC}\n"
-sleep 0.2
+sleep 0.05
 
 # ── [1] Packages ──────────────────────────
 section "[1] Packages"
@@ -515,7 +515,7 @@ _ascii_art() {
 clear
 echo ""
 echo -en "${A}${BOLD}"
-for ((i=0; i<TW; i++)); do printf '▄'; sleep 0.003; done
+printf '▄%.0s' $(seq 1 $TW)
 echo -e "${NC}"
 echo ""
 
@@ -534,7 +534,7 @@ if [ -f "$FONT_FILE" ]; then
             
             printf "%${pad}s"
             echo -e "${COLOR}${BOLD}${line}${NC}"
-            sleep 0.06
+            sleep 0.012
         fi
         ((line_index++))
     done <<< "$ascii_output"
@@ -551,17 +551,33 @@ SUB="◈  E L I T E   T E R M I N A L  ◈"
 pad=$(( (TW - ${#SUB}) / 2 ))
 printf "%${pad}s"
 echo -en "${E}${BOLD}"
-for ((i=0; i<${#SUB}; i++)); do printf "${SUB:$i:1}"; sleep 0.018; done
+for ((i=0; i<${#SUB}; i++)); do printf "${SUB:$i:1}"; sleep 0.004; done
 echo -e "${NC}"
 echo ""
 echo -en "${C}${BOLD}"
-for ((i=0; i<TW; i++)); do printf '▀'; sleep 0.002; done
+printf '▀%.0s' $(seq 1 $TW)
 echo -e "${NC}"
 echo ""
 
 DATE_V=$(date +"%-d %B %Y  ·  %A")
 TIME_V=$(date +"%I:%M:%S %p")
-IP_V=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "Offline")
+
+# ── Network status (real connectivity check) ──
+IP_V=""
+if command -v ip >/dev/null 2>&1; then
+    IP_V=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+')
+fi
+if [ -z "$IP_V" ] && command -v ifconfig >/dev/null 2>&1; then
+    IP_V=$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '127.0.0.1' | awk '{print $NF}' | head -n1)
+fi
+if [ -z "$IP_V" ]; then
+    if curl -s --max-time 2 -o /dev/null -w "%{http_code}" "http://clients3.google.com/generate_204" 2>/dev/null | grep -q "204"; then
+        IP_V="Online"
+    else
+        IP_V="Offline"
+    fi
+fi
+
 STOR_V=$(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $4" free / "$2}' || echo "N/A")
 RAM_V=$(free -m 2>/dev/null | awk 'NR==2{printf "%d/%d MB", $3, $2}' || echo "N/A")
 
@@ -573,12 +589,12 @@ echo -e "╗${NC}"
 
 _row() {
     local icon="$1" label="$2" val="$3"
-    echo -en "  ${A}${BOLD}║${NC}  ${B}${BOLD}${icon}${NC}  \033[38;5;245m$(printf '%-8s' "${label}")${NC}  ${F}│${NC}  \033[38;5;252m${val}${NC}"
+    echo -en "  ${A}${BOLD}║${NC}  \033[38;5;51m${BOLD}${icon}${NC}  \033[38;5;245m$(printf '%-8s' "${label}")${NC}  ${F}│${NC}  \033[38;5;252m${val}${NC}"
     local used=$(( ${#label} + ${#val} + ${#icon} + 12 ))
     local pad=$(( BW - used ))
     if [ $pad -gt 0 ]; then printf '%*s' "$pad" ""; fi
     echo -e "  ${A}${BOLD}║${NC}"
-    sleep 0.05
+    sleep 0.01
 }
 
 _mid() {
@@ -588,12 +604,12 @@ _mid() {
 }
 
 _mid
-_row "📅" "DATE"    "${DATE_V}"
-_row "⏰" "TIME"    "${TIME_V}"
+_row "▤" "DATE"    "${DATE_V}"
+_row "⏱" "TIME"    "${TIME_V}"
 _mid
-_row "🌐" "NETWORK" "${IP_V}"
-_row "💾" "STORAGE" "${STOR_V}"
-_row "🧠" "MEMORY"  "${RAM_V}"
+_row "◎" "NETWORK" "${IP_V}"
+_row "▥" "STORAGE" "${STOR_V}"
+_row "✳" "MEMORY"  "${RAM_V}"
 _mid
 
 echo -en "  ${A}${BOLD}╚"
@@ -686,37 +702,36 @@ zstyle ':vcs_info:git:*' formats ' %F{201}⎇ %b%f'
 zstyle ':vcs_info:*' enable git
 setopt PROMPT_SUBST
 
-# ── Folder Icon Box (🏠 home / 📂 folder) ──
-# হোমে থাকলে 🏠 আইকন, অন্য যেকোনো ফোল্ডারে গেলে 📂 আইকন দেখাবে
+# ── Folder Icon Box (⌂ home / ❐ folder, blue) ──
+# হোমে থাকলে ⌂ আইকন, অন্য যেকোনো ফোল্ডারে গেলে ❐ আইকন দেখাবে (দুটোই নীল রঙে)
 # একটা বক্সের মধ্যে path + ডানপাশে ✔ mark, নিচে tree connector
-_FBW=\$(( \${COLUMNS:-\$(tput cols 2>/dev/null || echo 58)} - 2 ))
-
 _folder_icon_box() {
-    local cur="\$PWD" home="\$HOME" disp icon w line used pad
-    w=\$(( \${COLUMNS:-\$(tput cols 2>/dev/null || echo 58)} - 2 ))
+    local cur="\$PWD" home="\$HOME" disp icon w inw border pad content
+
+    w=\${COLUMNS:-\$(tput cols 2>/dev/null || echo 58)}
+    (( w > 64 )) && w=64
+    (( w < 20 )) && w=20
+    inw=\$(( w - 2 ))
 
     if [ "\$cur" = "\$home" ]; then
         disp="~"
-        icon="🏠"
+        icon="⌂"
     else
         disp="\${cur/#\$home/~}"
-        icon="📂"
+        icon="❐"
     fi
 
+    border=\$(printf '─%.0s' \$(seq 1 \$inw))
+    content="  \033[38;5;51m\033[1m\${icon}\033[0m  \033[38;5;252m\${disp}\033[0m"
+    pad=\$(( inw - \${#disp} - 5 ))
+    (( pad < 1 )) && pad=1
+
     echo ""
-    line="  \${icon}  \${disp}"
-    used=\$(( \${#disp} + 6 ))
-    pad=\$(( w - used ))
-    [ \$pad -lt 1 ] && pad=1
-
-    echo -en "\033[38;5;51m\033[1m╭\033[0m"
-    printf '\033[38;5;51m\033[1m─\033[0m%.0s' \$(seq 1 \$((w-1)))
-    echo -e "\033[38;5;51m\033[1m╮\033[0m"
-
-    printf '  \033[1;37m%s\033[0m  \033[38;5;252m%s\033[0m' "\${icon}" "\${disp}"
+    echo -e "\033[38;5;51m\033[1m╭\${border}╮\033[0m"
+    printf "\033[38;5;51m\033[1m│\033[0m%b" "\${content}"
     printf '%*s' "\${pad}" ""
-    echo -e "\033[38;5;82m\033[1m✔\033[0m"
-
+    echo -e "\033[38;5;82m\033[1m✔\033[0m \033[38;5;51m\033[1m│\033[0m"
+    echo -e "\033[38;5;51m\033[1m╰\${border}╯\033[0m"
     echo -en "\033[38;5;51m\033[1m╰─❯\033[0m "
 }
 
