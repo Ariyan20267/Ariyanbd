@@ -21,7 +21,7 @@ except ImportError:
     psutil = None
 
 # ----------------- CONFIGURATION -----------------
-BOT_TOKEN = '8535019108:AAFxpgbVRwff36VvLNdaG8XNB1DDsfXj13U'  # Insert your premium bot token here
+BOT_TOKEN = '7688909514:AAF51Wg4tLxVwpC5-H6FQ0WrkIWFtwQs3ck'  # Insert your premium bot token here
 BASE_DIR = 'projects'              
 META_FILE = 'projects_meta.json'   
 
